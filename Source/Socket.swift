@@ -20,6 +20,7 @@ public final class Socket {
     
     public var onConnect: (() -> ())?
     public var onDisconnect: ((Error?) -> ())?
+    public var onResponse: ((Response) -> ())?
     
     fileprivate(set) public var channels: [String: Channel] = [:]
     
@@ -36,8 +37,8 @@ public final class Socket {
     // MARK: - Initialisation
     
     public init(url: URL, params: [String: String]? = nil) {
-        heartbeatQueue = DispatchQueue(label: "com.ecksd.birdsong.hbqueue", attributes: [])
-        socket = WebSocket(url: buildURL(url, params: params))
+        heartbeatQueue = DispatchQueue(label: "com.ecksd.birdsong.hbqueue")
+        socket = WebSocket(url: url.appendQueryItems(params))
         socket.delegate = self
     }
     
@@ -61,18 +62,14 @@ public final class Socket {
     // MARK: - Connection
     
     public func connect() {
-        if socket.isConnected {
-            return
-        }
+        guard !socket.isConnected else { return }
         
         log("Connecting to: \(socket.currentURL)")
         socket.connect()
     }
     
     public func disconnect() {
-        if !socket.isConnected {
-            return
-        }
+        guard socket.isConnected else { return }
         
         log("Disconnecting from: \(socket.currentURL)")
         socket.disconnect()
@@ -81,13 +78,13 @@ public final class Socket {
     // MARK: - Channels
     
     public func channel(_ topic: String, payload: Payload = [:]) -> Channel {
-        let channel = Channel(socket: self, topic: topic, params: payload)
+        let channel = Channel(socket: self, topic: topic, parameters: payload)
         channels[topic] = channel
         return channel
     }
     
     public func remove(_ channel: Channel) {
-        channel.leave()?.receive("ok") { [weak self] response in
+        channel.leave()?.receive("ok") { [weak self] _, _ in
             self?.channels.removeValue(forKey: channel.topic)
         }
     }
@@ -95,9 +92,7 @@ public final class Socket {
     // MARK: - Heartbeat
     
     func sendHeartbeat() {
-        guard socket.isConnected else {
-            return
-        }
+        guard socket.isConnected else { return }
         
         let ref = Socket.HeartbeatPrefix + UUID().uuidString
         _ = send(Push(Event.Heartbeat, topic: "phoenix", payload: [:], ref: ref))
@@ -126,7 +121,7 @@ public final class Socket {
 
         do {
             let data = try message.toJson()
-            log("Sending: \(message.payload)")
+            log("Sending: \(message.debugDescription)")
             if let ref = message.ref {
                 awaitingResponses[ref] = message
                 socket.write(data: data, completion: nil)
@@ -139,15 +134,41 @@ public final class Socket {
         return message
     }
     
-    // MARK: - Event constants
+    @discardableResult
+    open func handleMessage(_ text: String) -> Response {
+        guard let data = text.data(using: .utf8),
+            let response = Response(data: data) else {
+                fatalError("Couldn't parse response: \(text)")
+        }
+        
+        defer {
+            awaitingResponses.removeValue(forKey: response.ref)
+        }
+        
+        log("Received message: \(response.payload)")
+        
+        if let push = awaitingResponses[response.ref] {
+            push.handleResponse(response)
+        }
+        
+        channels[response.topic]?.received(response)
+        onResponse?(response)
+        
+        return response
+    }
+}
+
+// MARK: - Event constants
+
+public extension Socket {
     
-    struct Event {
-        static let Heartbeat = "heartbeat"
-        static let Join = "phx_join"
-        static let Leave = "phx_leave"
-        static let Reply = "phx_reply"
-        static let Error = "phx_error"
-        static let Close = "phx_close"
+    open struct Event {
+        public static let Heartbeat = "heartbeat"
+        public static let Join = "phx_join"
+        public static let Leave = "phx_leave"
+        public static let Reply = "phx_reply"
+        public static let Error = "phx_error"
+        public static let Close = "phx_close"
     }
 }
 
@@ -170,22 +191,7 @@ extension Socket: WebSocketDelegate {
     }
 
     public func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
-        if let data = text.data(using: String.Encoding.utf8),
-            let response = Response(data: data) {
-            defer {
-                awaitingResponses.removeValue(forKey: response.ref)
-            }
-
-            log("Received message: \(response.payload)")
-
-            if let push = awaitingResponses[response.ref] {
-                push.handleResponse(response)
-            }
-
-            channels[response.topic]?.received(response)
-        } else {
-            fatalError("Couldn't parse response: \(text)")
-        }
+        handleMessage(text)
     }
 
     public func websocketDidReceiveData(socket: WebSocketClient, data: Data) {
@@ -197,28 +203,25 @@ extension Socket: WebSocketDelegate {
 
 extension Socket {
     fileprivate func log(_ message: String) {
-        if enableLogging {
-            print("[Birdsong]: \(message)")
-        }
+        guard enableLogging else { return }
+        
+        print("[Birdsong] \(message)")
     }
 }
 
 // MARK: - Private URL helpers
 
-private func buildURL(_ url: URL, params: [String: String]?) -> URL {
-    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-        let params = params else {
-            return url
+fileprivate extension URL {
+    
+    func appendQueryItems(_ params: [String: String]?) -> URL {
+        guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+            let items = params?.flatMap({ URLQueryItem(name: $0, value: $1) }) else {
+                return self
+        }
+        components.queryItems = items
+        
+        guard let url = components.url else { fatalError("Problem with the URL") }
+        
+        return url
     }
-    
-    var queryItems = [URLQueryItem]()
-    params.forEach({
-        queryItems.append(URLQueryItem(name: $0, value: $1))
-    })
-    
-    components.queryItems = queryItems
-    
-    guard let url = components.url else { fatalError("Problem with the URL") }
-    
-    return url
 }

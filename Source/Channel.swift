@@ -9,97 +9,171 @@
 import Foundation
 
 open class Channel {
+    
+    public typealias ChannelResponseHandler = ((Channel, Response) -> ())
+    public typealias ChannelPresenceHandler = ((Channel, Presence) -> ())
+    
     // MARK: - Properties
 
+    /// Topic
     open let topic: String
+    
+    /// Params sent when joining the channel.
     open let params: Socket.Payload
-    fileprivate weak var socket: Socket?
-    fileprivate(set) open var state: State
+    
+    /// Socket instance used to send an event.
+    open weak var socket: Socket?
+    
+    /// Current channel state.
+    internal(set) open var state: State = .closed
 
-    fileprivate(set) open var presence: Presence
+    /// Presence object.
+    internal(set) open var presence: Presence = Presence()
 
-    fileprivate var callbacks: [String: (Response) -> ()] = [:]
-    fileprivate var presenceStateCallback: ((Presence) -> ())?
+    /// Dictionary of callbacks called when event occurs.
+    /// `key` is the event name and `value` the associated callback.
+    open var callbacks: [String: ChannelResponseHandler] = [:]
+    
+    /// Array of callbacks called when the presence state changes.
+    open var presenceStateCallback: ChannelPresenceHandler?
 
-    init(socket: Socket, topic: String, params: Socket.Payload = [:]) {
+    /// Instanciate a new Channel instance.
+    ///
+    /// - Parameters:
+    ///   - socket: Socket to use to send messages.
+    ///   - topic: Assigned topic.
+    ///   - parameters: Parameters sent along with the `join` request.
+    public init(socket: Socket, topic: String, parameters: Socket.Payload = [:]) {
         self.socket = socket
         self.topic = topic
-        self.params = params
-        self.state = .Closed
-        self.presence = Presence()
+        self.params = parameters
 
         // Register presence handling.
-		on("presence_state") { [weak self] (response) in
-			self?.presence.sync(response)
-			guard let presence = self?.presence else {return}
-			self?.presenceStateCallback?(presence)
+		on("presence_state") { (channel, response) in
+			channel.presence.sync(response)
+			channel.presenceStateCallback?(channel, channel.presence)
 		}
-		on("presence_diff") { [weak self] (response) in
-			self?.presence.sync(response)
+		on("presence_diff") { (channel, response) in
+			channel.presence.sync(response)
 		}
-    }
-
-    // MARK: - Control
-
-    @discardableResult
-    open func join() -> Push? {
-        state = .Joining
-
-        return send(Socket.Event.Join, payload: params)?.receive("ok", callback: { response in
-            self.state = .Joined
-        })
-    }
-
-    @discardableResult
-    open func leave() -> Push? {
-        state = .Leaving
-
-        return send(Socket.Event.Leave, payload: [:])?.receive("ok", callback: { response in
-	    self.callbacks.removeAll()
-	    self.presence.onJoin = nil
-            self.presence.onLeave = nil
-            self.presence.onStateChange = nil
-            self.state = .Closed
-        })
-    }
-
-    @discardableResult
-    open func send(_ event: String,
-                     payload: Socket.Payload) -> Push? {
-        let message = Push(event, topic: topic, payload: payload)
-        return socket?.send(message)
-    }
-
-    // MARK: - Raw events
-
-    func received(_ response: Response) {
-        if let callback = callbacks[response.event] {
-            callback(response)
-        }
     }
 
     // MARK: - Callbacks
+}
 
+// MARK: - Control
+public extension Channel {
+    
+    /// Join a channel by sending a Phoenix join event.
+    ///
+    /// - Returns: Associated push sent.
     @discardableResult
-    open func on(_ event: String, callback: @escaping (Response) -> ()) -> Self {
+    open func join() -> Push? {
+        state = .joining
+        
+        return send(Socket.Event.Join, payload: params)?.receive("ok") { push, response in
+            self.state = .joined
+        }
+    }
+    
+    /// Leave a channel by sending a Phoenix leave event.
+    ///
+    /// - Returns: Associated push sent.
+    @discardableResult
+    open func leave() -> Push? {
+        state = .leaving
+        
+        return send(Socket.Event.Leave, payload: [:])?.receive("ok") {[weak self] push, response in
+            guard let `self` = self else { return }
+            self.callbacks.removeAll()
+            self.presence.onJoin = nil
+            self.presence.onLeave = nil
+            self.presence.onStateChange = nil
+            self.state = .closed
+        }
+    }
+    
+    /// Join a channel if it hasn't yet.
+    ///
+    /// - Parameter callback: Called upon completion.
+    func joinIfNeeded(_ callback: @escaping ((_ error: PushError?, _ channel: Channel) -> Void)) {
+        if state == .joined {
+            callback(nil, self)
+        } else {
+            join()?.always() { (push) in
+                callback(push.lastError, self)
+            }
+        }
+    }
+    
+    /// Send an event using this channel.
+    ///
+    /// - Parameters:
+    ///   - event: Event to send
+    ///   - payload: Payload to tag along
+    /// - Returns: Associated push sent.
+    @discardableResult
+    open func send(_ event: String,
+                   payload: Socket.Payload) -> Push? {
+        let message = Push(event, topic: topic, payload: payload)
+        return socket?.send(message)
+    }
+}
+
+// MARK: - Callbacks
+public extension Channel {
+    
+    /// Called when a certain event occurs on this channel.
+    ///
+    /// - Parameters:
+    ///   - event: Event to watch.
+    ///   - callback: Called when this event occurs.
+    /// - Returns: Itself
+    @discardableResult
+    open func on(_ event: String, callback: @escaping (ChannelResponseHandler)) -> Self {
         callbacks[event] = callback
         return self
     }
-
+    
+    /// Called when the presence has been updated for this channel.
+    ///
+    /// - Parameter callback: Called when this event occurs.
+    /// - Returns: Itself
     @discardableResult
-    open func onPresenceUpdate(_ callback: @escaping (Presence) -> ()) -> Self {
+    open func onPresenceUpdate(_ callback: @escaping (ChannelPresenceHandler)) -> Self {
         presenceStateCallback = callback
         return self
     }
+}
 
-    // MARK: - States
+// MARK: - Raw events
+internal extension Channel {
+    
+    func received(_ response: Response) {
+        callbacks[response.event]?(self, response)
+    }
+}
 
+// MARK: - States
+extension Channel {
+    
+    /// Enum describing the current Channel's state.
     public enum State: String {
-        case Closed = "closed"
-        case Errored = "errored"
-        case Joined = "joined"
-        case Joining = "joining"
-        case Leaving = "leaving"
+        
+        /// Closed
+        case closed = "closed"
+        
+        /// An error occured
+        case errored = "errored"
+        
+        /// Successfully joined
+        case joined = "joined"
+        
+        /// Currently joining
+        case joining = "joining"
+        
+        /// Currently leaving
+        case leaving = "leaving"
     }
 }
 
