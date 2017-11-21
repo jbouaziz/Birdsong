@@ -12,6 +12,7 @@ import Starscream
 public final class Socket {
     // MARK: - Convenience aliases
     public typealias Payload = [String: Any]
+    public typealias StateChangeHandler = ((_ old: ConnectionState, _ new: ConnectionState) -> Void)
     
     // MARK: - Properties
     
@@ -21,6 +22,7 @@ public final class Socket {
     public var onConnect: (() -> ())?
     public var onDisconnect: ((Error?) -> ())?
     public var onResponse: ((Response) -> ())?
+    public var onStateChange: StateChangeHandler?
     
     fileprivate(set) public var channels: [String: Channel] = [:]
     
@@ -29,6 +31,11 @@ public final class Socket {
     fileprivate var heartbeatQueue: DispatchQueue
     
     fileprivate var awaitingResponses = [String: Push]()
+    
+    /// Current socket connection state.
+    internal(set) open var state: ConnectionState = .initial {
+        didSet { onStateChange?(oldValue, state) }
+    }
     
     public var isConnected: Bool {
         return socket.isConnected
@@ -65,6 +72,7 @@ public final class Socket {
         guard !socket.isConnected else { return }
         
         log("Connecting to: \(socket.currentURL)")
+        state = .connecting
         socket.connect()
     }
     
@@ -72,6 +80,7 @@ public final class Socket {
         guard socket.isConnected else { return }
         
         log("Disconnecting from: \(socket.currentURL)")
+        state = .disconnecting
         socket.disconnect()
     }
     
@@ -170,6 +179,14 @@ public extension Socket {
         public static let Error = "phx_error"
         public static let Close = "phx_close"
     }
+    
+    open enum ConnectionState {
+        case initial
+        case connecting
+        case connected
+        case disconnecting
+        case disconnected
+    }
 }
 
 // MARK: - WebSocketDelegate
@@ -177,12 +194,16 @@ public extension Socket {
 extension Socket: WebSocketDelegate {
     public func websocketDidConnect(socket: WebSocketClient) {
         log("Connected to: \(self.socket.currentURL)")
+        state = .connected
+        
         onConnect?()
         queueHeartbeat()
     }
 
     public func websocketDidDisconnect(socket: WebSocketClient, error: Error?) {
         log("Disconnected from: \(self.socket.currentURL)")
+        state = .disconnected
+        
         onDisconnect?(error)
 
         // Reset state.
@@ -218,7 +239,7 @@ fileprivate extension URL {
             let items = params?.flatMap({ URLQueryItem(name: $0, value: $1) }) else {
                 return self
         }
-        components.queryItems = items
+        components.queryItems?.append(contentsOf: items)
         
         guard let url = components.url else { fatalError("Problem with the URL") }
         
