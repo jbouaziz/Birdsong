@@ -44,10 +44,10 @@ public class Push {
     public let payload: Socket.Payload
     
     /// Unique ref
-    let ref: String?
+    let ref: Ref
     
     /// Unique join ref
-    let joinRef = UUID().uuidString
+    let joinRef: Ref
 
     /// Last received status.
     var receivedStatus: String?
@@ -71,8 +71,8 @@ public class Push {
     ///   - topic: Topic
     ///   - payload: Payload
     ///   - ref: Unique ref, defaults to a `UUID` string.
-    init(_ event: String, topic: String, payload: Socket.Payload, ref: String = UUID().uuidString) {
-        (self.topic, self.event, self.payload, self.ref) = (topic, event, payload, ref)
+    init(_ event: String, topic: String, payload: Socket.Payload, ref: Ref = Ref(), joinRef: Ref = Ref()) {
+        (self.topic, self.event, self.payload, self.ref, self.joinRef) = (topic, event, payload, ref, joinRef)
     }
 }
 
@@ -168,8 +168,8 @@ extension Push {
     internal var jsonMap: [Any] {
         // The order is very specific to Phoenix and GraphQL and shouldn't be changed
         return [
-            joinRef,
-            ref ?? "",
+            joinRef.string,
+            ref.string,
             topic,
             event,
             payload,
@@ -190,5 +190,27 @@ extension Push: CustomStringConvertible, CustomDebugStringConvertible {
     
     public var debugDescription: String {
         return jsonMap.debugDescription
+    }
+}
+
+public struct Ref: Hashable {
+    
+    private let _uuidString: String
+    let prefix: String?
+    var string: String {
+        return (prefix ?? "") + _uuidString
+    }
+    
+    init(prefix: String? = nil, value: String = UUID().uuidString.lowercased()) {
+        self.prefix = prefix
+        self._uuidString = value
+    }
+    
+    public var hashValue: Int {
+        return string.hashValue
+    }
+    
+    public static func ==(lhs: Ref, rhs: Ref) -> Bool {
+        return lhs.string == rhs.string
     }
 }

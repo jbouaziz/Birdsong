@@ -9,7 +9,7 @@
 import Foundation
 
 open class Response {
-    open let ref: String
+    open let ref: Ref
     open let topic: String
     open let event: String
     open let payload: Socket.Payload
@@ -19,7 +19,7 @@ open class Response {
             guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [Any],
                 json.count == 5 else { return nil }
             
-            ref = json[1] as? String ?? ""
+            ref = Ref(value: (json[1] as? String ?? ""))
             
             guard let topic = json[2] as? String,
                 let event = json[3] as? String,

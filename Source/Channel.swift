@@ -113,8 +113,7 @@ public extension Channel {
     ///   - payload: Payload to tag along
     /// - Returns: Associated push sent.
     @discardableResult
-    open func send(_ event: String,
-                   payload: Socket.Payload) -> Push? {
+    open func send(_ event: String, payload: Socket.Payload) -> Push? {
         let message = Push(event, topic: topic, payload: payload)
         return socket?.send(message)
     }

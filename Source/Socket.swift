@@ -30,7 +30,7 @@ public final class Socket {
     fileprivate static let HeartbeatPrefix = "hb-"
     fileprivate var heartbeatQueue: DispatchQueue
     
-    fileprivate var awaitingResponses = [String: Push]()
+    fileprivate var awaitingResponses = [Ref: Push]()
     
     /// Current socket connection state.
     internal(set) open var state: ConnectionState = .initial {
@@ -103,7 +103,7 @@ public final class Socket {
     func sendHeartbeat() {
         guard socket.isConnected else { return }
         
-        let ref = Socket.HeartbeatPrefix + UUID().uuidString
+        let ref = Ref(prefix: Socket.HeartbeatPrefix)
         _ = send(Push(Event.Heartbeat, topic: "phoenix", payload: [:], ref: ref))
         queueHeartbeat()
     }
@@ -131,10 +131,10 @@ public final class Socket {
         do {
             let data = try message.toJson()
             log("Sending: \(message.debugDescription)")
-            if let ref = message.ref {
-                awaitingResponses[ref] = message
-                socket.write(data: data, completion: nil)
-            }
+            
+            awaitingResponses[message.ref] = message
+            socket.write(data: data, completion: nil)
+            
         } catch let error as NSError {
             log("Failed to send message: \(error)")
             message.handleParseError()
@@ -150,13 +150,14 @@ public final class Socket {
                 fatalError("Couldn't parse response: \(text)")
         }
         
+        let ref = response.ref
         defer {
-            awaitingResponses.removeValue(forKey: response.ref)
+            awaitingResponses.removeValue(forKey: ref)
         }
         
         log("Received message: \(response.payload)")
         
-        if let push = awaitingResponses[response.ref] {
+        if let push = awaitingResponses[ref] {
             push.handleResponse(response)
         }
         
