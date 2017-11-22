@@ -26,7 +26,8 @@ public final class Socket {
     
     fileprivate(set) public var channels: [String: Channel] = [:]
     
-    fileprivate static let HeartbeatInterval = Int64(30 * NSEC_PER_SEC)
+    /// Interval in seconds at which a Heartbeat event will be sent.
+    public var heartbeatInterval: TimeInterval = 30
     fileprivate static let HeartbeatPrefix = "hb-"
     fileprivate var heartbeatQueue: DispatchQueue
     
@@ -109,8 +110,7 @@ public final class Socket {
     }
     
     func queueHeartbeat() {
-        let time = DispatchTime.now() + Double(Socket.HeartbeatInterval) / Double(NSEC_PER_SEC)
-        heartbeatQueue.asyncAfter(deadline: time) {
+        heartbeatQueue.asyncAfter(deadline: .now() + heartbeatInterval) {
             self.sendHeartbeat()
         }
     }
