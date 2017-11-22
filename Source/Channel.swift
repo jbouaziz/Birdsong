@@ -68,7 +68,10 @@ public extension Channel {
     ///
     /// - Returns: Associated push sent.
     @discardableResult
-    open func join() -> Push? {
+    open func join(force: Bool = false) -> Push? {
+        if state == .joined && !force {
+            return nil
+        }
         state = .joining
         
         return send(Socket.Event.Join, payload: params)?.receive("ok") { push, response in
