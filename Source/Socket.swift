@@ -181,7 +181,7 @@ public extension Socket {
         public static let Close = "phx_close"
     }
     
-    open enum ConnectionState {
+    open enum ConnectionState: String {
         case initial
         case connecting
         case connected
