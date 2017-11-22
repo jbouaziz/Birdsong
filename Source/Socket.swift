@@ -38,6 +38,16 @@ public final class Socket {
         didSet { onStateChange?(oldValue, state) }
     }
     
+    /// When set to true, the socket will try to reconnect when its connection was lost unexpectedly.
+    public var autoReconnect: Bool = true
+    public var autoReconnectInterval: TimeInterval = 3
+    
+    /// Flag used to check if the user was disconnected on purpose or whether it might have been a network error.
+    fileprivate var disconnectExpectedly: Bool = false
+    fileprivate var autoReconnectTimer: Timer? {
+        willSet { autoReconnectTimer?.invalidate() }
+    }
+    
     public var isConnected: Bool {
         return socket.isConnected
     }
@@ -67,6 +77,10 @@ public final class Socket {
         self.init(url: url, params: params)
     }
     
+    deinit {
+        autoReconnectTimer?.invalidate()
+    }
+    
     // MARK: - Connection
     
     public func connect() {
@@ -79,6 +93,7 @@ public final class Socket {
     
     public func disconnect() {
         guard socket.isConnected else { return }
+        disconnectExpectedly = true
         
         log("Disconnecting from: \(socket.currentURL)")
         state = .disconnecting
@@ -191,11 +206,14 @@ public extension Socket {
 }
 
 // MARK: - WebSocketDelegate
-
 extension Socket: WebSocketDelegate {
+    
     public func websocketDidConnect(socket: WebSocketClient) {
         log("Connected to: \(self.socket.currentURL)")
         state = .connected
+        
+        disconnectExpectedly = false
+        autoReconnectTimer = nil
         
         onConnect?()
         queueHeartbeat()
@@ -210,6 +228,8 @@ extension Socket: WebSocketDelegate {
         // Reset state.
         awaitingResponses.removeAll()
         channels.removeAll()
+        
+        tryToReconnectIfNeeded()
     }
 
     public func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
@@ -221,9 +241,29 @@ extension Socket: WebSocketDelegate {
     }
 }
 
+// MARK: - Timer
+fileprivate extension Socket {
+    
+    /// Try to reconnect if the user was disconnected unexpectedly.
+    func tryToReconnectIfNeeded() {
+        
+        autoReconnectTimer = nil
+        guard !disconnectExpectedly && autoReconnect && autoReconnectInterval > 0 else {
+            return
+        }
+        autoReconnectTimer = Timer.scheduledTimer(timeInterval: autoReconnectInterval, target: self, selector: #selector(autoReconnectTimerAction(_:)), userInfo: nil, repeats: true)
+    }
+    
+    @objc private func autoReconnectTimerAction(_ timer: Timer) {
+        log("Trying to reconnect")
+        self.connect()
+    }
+}
+
 // MARK: - Logging
 
 extension Socket {
+    
     fileprivate func log(_ message: String) {
         guard enableLogging else { return }
         
