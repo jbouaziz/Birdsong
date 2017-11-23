@@ -98,6 +98,9 @@ public final class Socket {
         log("Disconnecting from: \(socket.currentURL)")
         state = .disconnecting
         socket.disconnect()
+        
+        // The disconnected something doesn't get trigerred so assume it
+        state = .disconnected
     }
     
     // MARK: - Channels
