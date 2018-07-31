@@ -33,7 +33,7 @@ public final class Presence {
 
     // MARK: - Syncing
 
-    func sync(_ diff: Response) {
+    public func sync(_ diff: Response) {
         // Initial state event
         if diff.event == "presence_state" {
             diff.payload.forEach{ id, entry in
