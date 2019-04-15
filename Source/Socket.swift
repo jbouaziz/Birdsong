@@ -190,7 +190,7 @@ public final class Socket {
 
 public extension Socket {
     
-    open struct Event {
+    public struct Event {
         public static let Heartbeat = "heartbeat"
         public static let Join = "phx_join"
         public static let Leave = "phx_leave"
@@ -199,7 +199,7 @@ public extension Socket {
         public static let Close = "phx_close"
     }
     
-    open enum ConnectionState: String {
+    public enum ConnectionState: String {
         case initial
         case connecting
         case connected
