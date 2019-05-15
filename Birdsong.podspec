@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'Birdsong'
-  s.version          = '0.6.3'
+  s.version          = '0.7.0'
   s.summary          = 'WebSockets client for Phoenix Channels.'
   s.homepage         = 'https://github.com/jbouaziz/Birdsong'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
@@ -11,5 +11,5 @@ Pod::Spec.new do |s|
   s.osx.deployment_target = '10.10'
   s.tvos.deployment_target = '9.0'
   s.source_files = 'Source/**/*'
-  s.dependency 'Starscream', '3.0.3'
+  s.dependency 'Starscream', '~> 3.1.0'
 end
