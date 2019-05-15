@@ -9,10 +9,10 @@
 import Foundation
 
 open class Response {
-    open let ref: Ref
-    open let topic: String
-    open let event: String
-    open let payload: Socket.Payload
+    public let ref: Ref
+    public let topic: String
+    public let event: String
+    public let payload: Socket.Payload
 
     init?(data: Data) {
         do {

@@ -34,7 +34,7 @@ public final class Socket {
     fileprivate var awaitingResponses = [Ref: Push]()
     
     /// Current socket connection state.
-    internal(set) open var state: ConnectionState = .initial {
+    internal(set) public var state: ConnectionState = .initial {
         didSet { onStateChange?(oldValue, state) }
     }
     
@@ -162,7 +162,7 @@ public final class Socket {
     }
     
     @discardableResult
-    open func handleMessage(_ text: String) -> Response {
+    public func handleMessage(_ text: String) -> Response {
         guard let data = text.data(using: .utf8),
             let response = Response(data: data) else {
                 fatalError("Couldn't parse response: \(text)")

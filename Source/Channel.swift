@@ -16,10 +16,10 @@ open class Channel {
     // MARK: - Properties
 
     /// Topic
-    open let topic: String
+    public let topic: String
     
     /// Params sent when joining the channel.
-    open let params: Socket.Payload
+    public let params: Socket.Payload
     
     /// Socket instance used to send an event.
     open weak var socket: Socket?
@@ -67,9 +67,9 @@ public extension Channel {
     /// - Returns: Associated push sent.
     @discardableResult
     open func join(force: Bool = false) -> Push? {
-//        if state == .joined && !force {
-//            return nil
-//        }
+        if state == .joined && !force {
+            return nil
+        }
         state = .joining
         
         return send(Socket.Event.Join, payload: params)?.receive("ok") { push, response in
