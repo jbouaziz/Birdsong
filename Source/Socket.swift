@@ -151,8 +151,12 @@ public final class Socket {
             log("Sending: \(message.debugDescription)")
             
             awaitingResponses[message.ref] = message
-            socket.write(data: data, completion: nil)
-            
+
+            // Phoenix v2 serializer requires a string to be sent, not
+            // `Data` anymore.
+            let string = String(data: data, encoding: .utf8)!
+            socket.write(string: string, completion: nil)
+
         } catch let error as NSError {
             log("Failed to send message: \(error)")
             message.handleParseError()
